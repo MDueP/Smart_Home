@@ -1,5 +1,7 @@
 # Smart Home program. Reads local devices and external sensors and controls external devices
 # Hardware platform is an Educaboard
+# MicroPython and ESP32 https://docs.micropython.org/en/latest/esp32/quickref.html
+#
 import sys, uselect                    # Needed for USB port use
 from machine import ADC, I2C, Pin, PWM, SPI, UART
 import time
@@ -33,6 +35,16 @@ SHOW_BROADCAST_MESSAGES = const(True)  # enable/disable showing revceived broadc
 
 BROADCAST_INTERVAL = const(1000 * 60)  # Troubleshooting auto broadcast interval in ms, 0 = no broadcast
 
+MY_NAME = const("Bo")                  # Your own handle
+
+########################################
+# EEPROM MAP
+EEPROM_TEMP_1 = const(4096)            # Float, 4 bytes
+EEPROM_TEMP_2 = const(4100)            # Float, 4 bytes
+EEPROM_ADC_1 = const(4104)             # Word, 2 bytes
+EEPROM_ADC_2 = const(4106)             # Word, 2 bytes
+EEPROM_MAC_ADDR_START = const(4108)    # Six bytes per entry * MAX_NUMBER_RECEIVERS
+
 ########################################
 # OBJECTS
 # Push buttons
@@ -44,7 +56,7 @@ led1 = Pin(26, Pin.OUT)                # LED1 is the red LED, LED2 and LED3 via 
 
 # LCD contrast
 potmeter_adc = ADC(Pin(34))            # The ADC object
-potmeter_adc.width(ADC.WIDTH_10BIT)    # Set the potmeter ADC to 10 bits to match the PWM width
+potmeter_adc.width(ADC.WIDTH_10BIT)    # Set the potmeter ADC to 10 bits to match the PWM width. THIS APPLIES TO ALL ADC USE HEREAFTER!
 potmeter_adc.atten(ADC.ATTN_11DB)      # Full range: 3,3 V
 lcd_contrast = PWM(Pin(23))            # Create PWM object from a pin
 
@@ -68,14 +80,6 @@ port_exp = PortExp_MCP23S08(hspi, pin_portexp_cs, port_exp_addr)
 
 usb = uselect.poll()                   # Set up an input polling but non-blocking object
 usb.register(sys.stdin, uselect.POLLIN)# Register polling object
-
-########################################
-# EEPROM MAP
-EEPROM_TEMP_1 = const(4096)            # Float, 4 bytes
-EEPROM_TEMP_2 = const(4100)            # Float, 4 bytes
-EEPROM_ADC_1 = const(4104)             # Word, 2 bytes
-EEPROM_ADC_2 = const(4106)             # Word, 2 bytes
-EEPROM_MAC_ADDR_START = const(4108)    # Six bytes per entry
 
 ########################################
 # VARIABLES
@@ -225,7 +229,7 @@ def usb_scan_and_parse(cmd_echo = True):
             else:
                 print("Incomplete command")                
             
-        # Write the temperature calibration values, wr temp cal T1 ADC1 T2 ADC2 (wr temp cal 0 1000 21.5 666)
+        # Write the temperature calibration values, wr temp cal T1 ADC1 T2 ADC2 (wr temp cal 0 750 21.5 666)
         elif string[0:12] == "wr temp cal ":
             parts = string.split()
             if len(parts) == 7:
@@ -249,7 +253,8 @@ def usb_scan_and_parse(cmd_echo = True):
         
         # Print help texts
         elif string == "help" or string == "?":
-            print("\nAvailable commands\n------------------")
+            print("\nAvailable commands")
+            print("------------------")
             print("rd mac addr               to read this device\'s MAC address")
             print("rd mac list               to list the MAC addresses of the receivers")
             print("wr mac clear              to clear the MAC address list")
@@ -295,9 +300,9 @@ print_mac_addr_list()
         
 # Load ESP-Now with MAC-addresses
 for i in range(MAX_NUMBER_RECEIVERS):
-    mac_addr_bstring = get_mac_addr_bstring(i)
-    if mac_addr_bstring != en.MAC_ADDR_BROADCAST:
-        en.esp_now_add_mac_address(mac_addr_bstring)
+    mac_addr_bstring = get_mac_addr_bstring(i)  # Get a binary string with the MAC address
+    if mac_addr_bstring != en.MAC_ADDR_BROADCAST: # Don't add broadcast MAC address (same as cleared list)
+        en.esp_now_add_mac_address(mac_addr_bstring) # Add the MAC address to ESP-NOW
 en.esp_now_add_mac_address(en.MAC_ADDR_BROADCAST)  # Always add broadcast address
 
 # Initialize the port expander
@@ -331,10 +336,10 @@ while True:
     if msg:
         if tx != en.MAC_ADDR_BROADCAST:
             # now do something about it here
-           print(msg)
+           print("Message from " + str(tx) + ": " + str(msg))
         elif SHOW_BROADCAST_MESSAGES == True: # Only show broadcast messages if wanted. Control in Configuration
             lcd.print_broadcast(msg)
-            print("Broadcast: " + msg)
+            print("Broadcast from " + str(tx) + ": " + str(msg))
     
     
     # Control local devices
@@ -362,8 +367,8 @@ while True:
     if BROADCAST_INTERVAL > 0:
         if time.ticks_diff(time.ticks_ms(), time_last_broadcast) > BROADCAST_INTERVAL:
             time_last_broadcast = time.ticks_ms() # Update the time for next time comparison
-            en.esp_now_send_message(en.MAC_ADDR_BROADCAST, "Dashboard broadcast: " + str(time_last_broadcast))
-            print("Broadcast: " + str(time_last_broadcast))
+            en.esp_now_send_message(en.MAC_ADDR_BROADCAST, "Broadcast " + MY_NAME + ": " + str(time_last_broadcast))
+            print("Broadcast " + MY_NAME + ": " + str(time_last_broadcast))
 
     
     # Check if Ctrl-C is pressed
